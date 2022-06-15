@@ -9,7 +9,7 @@ Async library wrap long task and run as goroutine. Apart from running long backg
 ## Installation
 
 ```
-go get -u github.com/netbookai/async@v0.1.2
+go get -u github.com/netbookai/async@v0.1.1
 ```
 
 You may not be able to access the repo with netbook-devs path in GOPRIVATE,  update it as follows
