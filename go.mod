@@ -1,4 +1,4 @@
-module github.com/netbook-ai/async
+module github.com/netbookai/async
 
 go 1.17
 
