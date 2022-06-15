@@ -1,6 +1,6 @@
 # Async library
 
-Async library wrap long task and run as goroutine. Aprt from running long task it handles
+Async library wrap long task and run as goroutine. Apart from running long background tasks it handles
 
 * Timeout event while running task
 * Panic in task
@@ -47,6 +47,10 @@ export GOPRIVATE=gitlab.com/*
   //...
   
 ```
+### Sample Output
+
+![Alt text](/images/output.jpg?raw=true "Optional Title")
+
 
 ### Using Go
 ```
