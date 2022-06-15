@@ -1,2 +1,2 @@
-# task-runner
-async package to run goroutine as task and handle panics in routine
+# async
+async package to run goroutine as task and handle panics and timeout in routine
