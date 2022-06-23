@@ -4,16 +4,18 @@ import (
 	"context"
 	"time"
 
-	"github.com/netbook-ai/async"
+	"github.com/netbookai/async"
 	"github.com/netbookai/log"
 	"github.com/netbookai/log/loggers/zap"
 )
 
 //long time take background task
-func testTask(ctx context.Context, logger log.Logger) {
+func testTask(ctx context.Context, logger log.Logger) error {
 	logger.Info(ctx, "test task started")
 	time.Sleep(10 * time.Second) //intermediary steps
 	logger.Info(ctx, "test task finished")
+
+	return nil
 }
 
 func main() {
@@ -29,8 +31,8 @@ func main() {
 	async.GoWithContext(
 		ctx,
 		"testTask", // task name
-		func(taskCtx context.Context) {
-			testTask(taskCtx, logger)
+		func(taskCtx context.Context) error {
+			return testTask(taskCtx, logger)
 		},
 		timeout,
 		logger,

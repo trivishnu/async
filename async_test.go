@@ -10,11 +10,15 @@ import (
 
 func Test_run_method_with_success(t *testing.T) {
 	timeout := 3 * time.Second
-	task := func(context.Context) {
+	task := func(context.Context) error {
 		time.Sleep(1 * time.Second)
+		return nil
 	}
 
-	err := run(context.Background(), timeout, task)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err := run(ctx, task)
 	if err != nil {
 		t.Fatalf("error expected: %v and got: %v", nil, err)
 	}
@@ -22,11 +26,15 @@ func Test_run_method_with_success(t *testing.T) {
 
 func Test_run_method_with_timeout(t *testing.T) {
 	timeout := 2 * time.Second
-	task := func(context.Context) {
+	task := func(context.Context) error {
 		time.Sleep(3 * time.Second)
+		return nil
 	}
 
-	err := run(context.Background(), timeout, task)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err := run(ctx, task)
 	if err == nil {
 		t.Fatalf("error expected: %v and got: %v", nil, err)
 	}
@@ -37,12 +45,15 @@ func Test_run_method_with_timeout(t *testing.T) {
 
 func Test_run_method_with_panic(t *testing.T) {
 	timeout := 5 * time.Second
-	task := func(context.Context) {
+	task := func(context.Context) error {
 		time.Sleep(3 * time.Second)
 		panic("error occured")
 	}
 
-	err := run(context.Background(), timeout, task)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err := run(ctx, task)
 	if err == nil {
 		t.Fatalf("error expected: %v and got: %v", nil, err)
 	}

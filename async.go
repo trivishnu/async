@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/netbookai/log"
@@ -10,18 +11,15 @@ import (
 	"github.com/pkg/errors"
 )
 
-func run(ctx context.Context, timeout time.Duration, fn func(context.Context)) error {
+func run(ctx context.Context, fn func(context.Context) error) error {
 	errCh := make(chan error)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer func() {
-		cancel()
 		close(errCh)
 	}()
 
 	go func() {
 		defer panicHandler(ctx, errCh)
-		fn(ctx)
-		errCh <- nil
+		errCh <- fn(ctx)
 	}()
 
 	select {
@@ -32,7 +30,7 @@ func run(ctx context.Context, timeout time.Duration, fn func(context.Context)) e
 	}
 }
 
-func execute(ctx context.Context, task func(context.Context), taskName string, timeout time.Duration, logger log.Logger) {
+func execute(ctx context.Context, task func(context.Context) error, taskName string, logger log.Logger) error {
 	ctx = getContextWithTaskName(ctx, taskName)
 
 	start := time.Now()
@@ -43,30 +41,47 @@ func execute(ctx context.Context, task func(context.Context), taskName string, t
 		logger.Info(ctx, "task finished", "elapsed", elapsed.String())
 	}()
 
-	err := run(ctx, timeout, task)
+	err := run(ctx, task)
 	if err != nil {
 		logger.Error(ctx, "error occured in executing task", "error", err)
-		return
+		return err
 	}
+
+	return nil
 }
 
-func GoWithContext(ctx context.Context, taskName string, task func(context.Context), timeout time.Duration, logger log.Logger) {
+func GoWithContext(ctx context.Context, taskName string, task func(context.Context) error, timeout time.Duration, logger log.Logger) {
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+
 	go execute(
 		ctx,
-		task,
+		func(context.Context) error {
+			defer func() {
+				if ctx.Err() == nil {
+					cancel()
+				}
+			}()
+			return task(ctx)
+		},
 		taskName,
-		timeout,
 		logger)
 }
 
-func Go(taskName string, task func(), timeout time.Duration, logger log.Logger) {
+func Go(taskName string, task func() error, timeout time.Duration, logger log.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
 	go execute(
-		context.Background(),
-		func(context.Context) {
-			task()
+		ctx,
+		func(context.Context) error {
+			defer func() {
+				if ctx.Err() == nil {
+					cancel()
+				}
+			}()
+			return task()
 		},
 		taskName,
-		timeout,
 		logger)
 }
 
@@ -89,4 +104,53 @@ func panicHandler(ctx context.Context, errCh chan error) {
 
 func getContextWithTaskName(ctx context.Context, taskName string) context.Context {
 	return loggers.AddToLogContext(ctx, "taskname", taskName)
+}
+
+func GoWithWait(ctx context.Context,
+	taskNames []string,
+	tasks []func(context.Context) error,
+	timeout time.Duration,
+	logger log.Logger) error {
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer func() {
+		if ctx.Err() == nil {
+			cancel()
+		}
+	}()
+
+	errs := make(chan error, len(tasks))
+
+	wg := new(sync.WaitGroup)
+	waitCh := make(chan struct{})
+	wg.Add(len(tasks))
+
+	go func() {
+		for i, task := range tasks {
+			taskToRun := task
+			taskName := taskNames[i]
+			go func() {
+				defer wg.Done()
+				taskErr := execute(ctx, taskToRun, taskName, logger)
+				if taskErr != nil && ctx.Err() == nil {
+					errs <- taskErr
+					cancel()
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(waitCh)
+	}()
+
+	select {
+	case <-waitCh: // successfully completed all tasks
+		close(waitCh)
+		return nil
+	case err := <-errs:
+		close(errs)
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
