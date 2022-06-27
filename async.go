@@ -148,19 +148,19 @@ func run(ctx context.Context, fn func(context.Context) error) error {
 }
 
 func execute(ctx context.Context, task func(context.Context) error, taskName string, logger log.Logger) error {
-	ctx = getContextWithTaskName(ctx, taskName)
+	newCtx := getContextWithTaskName(ctx, taskName)
 
 	start := time.Now()
-	logger.Info(ctx, "task started")
+	logger.Info(newCtx, "task started")
 
 	defer func() {
 		elapsed := time.Since(start)
-		logger.Info(ctx, "task finished", "elapsed", elapsed.String())
+		logger.Info(newCtx, "task finished", "elapsed", elapsed.String())
 	}()
 
-	err := run(ctx, task)
+	err := run(newCtx, task)
 	if err != nil {
-		logger.Error(ctx, "error occured in executing task", "error", err)
+		logger.Error(newCtx, "error occured in executing task", "error", err)
 		return err
 	}
 
@@ -168,5 +168,5 @@ func execute(ctx context.Context, task func(context.Context) error, taskName str
 }
 
 func getContextWithTaskName(ctx context.Context, taskName string) context.Context {
-	return loggers.AddToLogContext(ctx, "taskname", taskName)
+	return loggers.GetNewLogContextWithValue(ctx, "taskname", taskName)
 }

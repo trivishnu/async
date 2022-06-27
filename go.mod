@@ -3,7 +3,7 @@ module github.com/netbookai/async
 go 1.17
 
 require (
-	github.com/netbookai/log v0.4.0
+	github.com/netbookai/log v0.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.7.2
 )
