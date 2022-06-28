@@ -16,16 +16,16 @@ type taskGroup struct {
 }
 
 type task struct {
-	name        string
-	taskWrapper func(context.Context) error
+	name string
+	fn   func(context.Context) error
 }
 
 func New() *taskGroup {
 	return &taskGroup{}
 }
 
-func (g *taskGroup) Add(name string, taskWrapper func(context.Context) error) *taskGroup {
-	g.tasks = append(g.tasks, task{name, taskWrapper})
+func (g *taskGroup) Add(name string, fn func(context.Context) error) *taskGroup {
+	g.tasks = append(g.tasks, task{name, fn})
 	return g
 }
 
@@ -35,7 +35,7 @@ func (g *taskGroup) GoWithContext(ctx context.Context, timeout time.Duration, lo
 	tasks := g.tasks
 
 	for _, task := range tasks {
-		taskToRun := task.taskWrapper
+		taskToRun := task.fn
 		taskName := task.name
 
 		go execute(
@@ -49,21 +49,7 @@ func (g *taskGroup) GoWithContext(ctx context.Context, timeout time.Duration, lo
 }
 
 func (g *taskGroup) Go(timeout time.Duration, logger log.Logger) {
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
-
-	tasks := g.tasks
-	for _, task := range tasks {
-		taskToRun := task.taskWrapper
-		taskName := task.name
-
-		go execute(
-			ctx,
-			func(context.Context) error {
-				return taskToRun(ctx)
-			},
-			taskName,
-			logger)
-	}
+	g.GoWithContext(context.Background(), timeout, logger)
 }
 
 func panicHandler(ctx context.Context, errCh chan error) {
@@ -93,7 +79,7 @@ func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logge
 
 	tasks := g.tasks
 
-	errs := make(chan error, len(tasks))
+	errs := make(chan error, len(tasks)+1)
 
 	wg := new(sync.WaitGroup)
 	waitCh := make(chan struct{})
@@ -101,7 +87,7 @@ func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logge
 
 	go func() {
 		for _, task := range tasks {
-			taskToRun := task.taskWrapper
+			taskToRun := task.fn
 			taskName := task.name
 			go func() {
 				defer wg.Done()
