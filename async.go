@@ -85,6 +85,8 @@ func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logge
 	waitCh := make(chan struct{})
 	wg.Add(len(tasks))
 
+	defer close(errs)
+
 	go func() {
 		for _, task := range tasks {
 			taskToRun := task.fn
@@ -107,7 +109,6 @@ func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logge
 	case <-waitCh: // successfully completed all tasks
 		return nil
 	case err := <-errs:
-		close(errs)
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
