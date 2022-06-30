@@ -1,28 +1,26 @@
 # Async library
 
-Async library wrap long task and run as goroutine. Apart from running long background tasks it handles
+Async library supports following features to handle ong background tasks
 
-* Timeout event while running task
-* Panic in task
+* Running multiple tasks without Wait using ``` GoWithContext ```
+* Running multiple tasks with Wait and error if any using ``` GoWithWait ```
+* Running multiple tasks without Context and Wait using ``` Go ```
+
+Apart from above featues it also handles
+
+* Timeout event while running tasks
+* Panic in tasks
 * Logs default Key Value saved in context (e.g. trace-id, taskname etc.) for better task tracking
 
 ## Installation
 
 ```
-go get -u github.com/netbookai/async@v0.1.1
+go get -u github.com/netbookai/async@v0.2.0
 ```
-
-You may not be able to access the repo with netbook-devs path in GOPRIVATE,  update it as follows
-
-```
-export GOPRIVATE=gitlab.com/*
-```
-
-> can update it in your profile settings (.bashrc, .zshrc)
 
 ## Usage
 
-``` async ``` supports two functions ``` GoWithContext ``` and ``` Go ```
+``` async ``` supports following methods ``` GoWithContext ```, ``` Go ```, ``` GoWithWait ```
 
 ### Using GoWithContext
 
@@ -34,15 +32,17 @@ export GOPRIVATE=gitlab.com/*
 	timeout := 20 * time.Second
 
 	// run as goroutine with timeout and error handlers
-	async.GoWithContext(
-		ctx,
-		"testTask", // task name
-		func(taskCtx context.Context) {
-			testTask(taskCtx, logger) //time taking method to run as task
+	async.New().Add(
+		"testTask1",
+		func(taskCtx context.Context) error {
+			return testTask1(taskCtx, logger)
 		},
-		timeout,
-		logger,
-	)
+	).Add(
+		"testTask2",
+		func(taskCtx context.Context) error {
+			return testTask2(taskCtx, logger)
+		},
+	).GoWithContext(ctx, timeout, logger)
 
   //...
   
@@ -51,6 +51,36 @@ export GOPRIVATE=gitlab.com/*
 
 ![Alt text](/images/output.jpg?raw=true "Optional Title")
 
+## Using GoWithWait
+
+```
+	ctx := context.Background()
+	logger := log.NewLogger(zap.NewLogger())
+	timeout := 20 * time.Second
+
+	// run as goroutine with timeout and error handlers
+	err := async.New().Add(
+		"testTask1",
+		func(taskCtx context.Context) error {
+			return testTask2(taskCtx, logger)
+		},
+	).Add(
+		"testTask2",
+		func(taskCtx context.Context) error {
+			return testTask2(taskCtx, logger)
+		},
+	).GoWithWait(ctx, timeout, logger)
+
+	//waiting for tasks to finish
+
+	if err != nil {
+		logger.Error(ctx, "error occured", "error", err)
+		return
+	}
+
+	//resuming next task
+	//...
+```
 
 ### Using Go
 ```
@@ -59,14 +89,18 @@ export GOPRIVATE=gitlab.com/*
 	timeout := 20 * time.Second
 
 	// run as goroutine with timeout and error handlers
-	async.Go(
-		"testTask", // task name
-		func() {
-			testTask(logger) //time taking method to run as task
+	
+	async.New().Add(
+		"testTask1",
+		func() error {
+			return testTask1(taskCtx, logger)
 		},
-		timeout,
-		logger,
-	)
+	).Add(
+		"testTask2",
+		func(taskCtx context.Context) error {
+			return testTask2(taskCtx, logger)
+		},
+	).Go(timeout, logger)
 
   //...
 ```
