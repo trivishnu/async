@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/netbookai/log"
@@ -10,64 +11,45 @@ import (
 	"github.com/pkg/errors"
 )
 
-func run(ctx context.Context, timeout time.Duration, fn func(context.Context)) error {
-	errCh := make(chan error)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer func() {
-		cancel()
-		close(errCh)
-	}()
+type taskGroup struct {
+	tasks []task
+}
 
-	go func() {
-		defer panicHandler(ctx, errCh)
-		fn(ctx)
-		errCh <- nil
-	}()
+type task struct {
+	name string
+	fn   func(context.Context) error
+}
 
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
+func New() *taskGroup {
+	return &taskGroup{}
+}
+
+func (g *taskGroup) Add(name string, fn func(context.Context) error) *taskGroup {
+	g.tasks = append(g.tasks, task{name, fn})
+	return g
+}
+
+func (g *taskGroup) GoWithContext(ctx context.Context, timeout time.Duration, logger log.Logger) {
+
+	ctx, _ = context.WithTimeout(ctx, timeout)
+	tasks := g.tasks
+
+	for _, task := range tasks {
+		taskToRun := task.fn
+		taskName := task.name
+
+		go execute(
+			ctx,
+			func(context.Context) error {
+				return taskToRun(ctx)
+			},
+			taskName,
+			logger)
 	}
 }
 
-func execute(ctx context.Context, task func(context.Context), taskName string, timeout time.Duration, logger log.Logger) {
-	ctx = getContextWithTaskName(ctx, taskName)
-
-	start := time.Now()
-	logger.Info(ctx, "task started")
-
-	defer func() {
-		elapsed := time.Since(start)
-		logger.Info(ctx, "task finished", "elapsed", elapsed.String())
-	}()
-
-	err := run(ctx, timeout, task)
-	if err != nil {
-		logger.Error(ctx, "error occured in executing task", "error", err)
-		return
-	}
-}
-
-func GoWithContext(ctx context.Context, taskName string, task func(context.Context), timeout time.Duration, logger log.Logger) {
-	go execute(
-		ctx,
-		task,
-		taskName,
-		timeout,
-		logger)
-}
-
-func Go(taskName string, task func(), timeout time.Duration, logger log.Logger) {
-	go execute(
-		context.Background(),
-		func(context.Context) {
-			task()
-		},
-		taskName,
-		timeout,
-		logger)
+func (g *taskGroup) Go(timeout time.Duration, logger log.Logger) {
+	g.GoWithContext(context.Background(), timeout, logger)
 }
 
 func panicHandler(ctx context.Context, errCh chan error) {
@@ -87,6 +69,91 @@ func panicHandler(ctx context.Context, errCh chan error) {
 	}
 }
 
+func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logger log.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer func() {
+		if ctx.Err() == nil {
+			cancel()
+		}
+	}()
+
+	tasks := g.tasks
+
+	errs := make(chan error, len(tasks)+1)
+
+	wg := new(sync.WaitGroup)
+	waitCh := make(chan struct{})
+	wg.Add(len(tasks))
+
+	defer close(errs)
+
+	go func() {
+		for _, task := range tasks {
+			taskToRun := task.fn
+			taskName := task.name
+			go func() {
+				defer wg.Done()
+				taskErr := execute(ctx, taskToRun, taskName, logger)
+				if taskErr != nil && ctx.Err() == nil {
+					errs <- taskErr
+					cancel()
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(waitCh)
+	}()
+
+	select {
+	case <-waitCh: // successfully completed all tasks
+		return nil
+	case err := <-errs:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func run(ctx context.Context, fn func(context.Context) error) error {
+	errCh := make(chan error)
+	defer func() {
+		close(errCh)
+	}()
+
+	go func() {
+		defer panicHandler(ctx, errCh)
+		errCh <- fn(ctx)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func execute(ctx context.Context, task func(context.Context) error, taskName string, logger log.Logger) error {
+	newCtx := getContextWithTaskName(ctx, taskName)
+
+	start := time.Now()
+	logger.Info(newCtx, "task started")
+
+	defer func() {
+		elapsed := time.Since(start)
+		logger.Info(newCtx, "task finished", "elapsed", elapsed.String())
+	}()
+
+	err := run(newCtx, task)
+	if err != nil {
+		logger.Error(newCtx, "error occured in executing task", "error", err)
+		return err
+	}
+
+	return nil
+}
+
 func getContextWithTaskName(ctx context.Context, taskName string) context.Context {
-	return loggers.AddToLogContext(ctx, "taskname", taskName)
+	return loggers.GetNewLogContextWithValue(ctx, "taskname", taskName)
 }
