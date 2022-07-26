@@ -3,12 +3,12 @@ package async
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/netbookai/log"
 	"github.com/netbookai/log/loggers"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 type taskGroup struct {
@@ -79,40 +79,21 @@ func (g *taskGroup) GoWithWait(ctx context.Context, timeout time.Duration, logge
 
 	tasks := g.tasks
 
-	errs := make(chan error, len(tasks)+1)
+	eg, ctx := errgroup.WithContext(ctx)
 
-	wg := new(sync.WaitGroup)
-	waitCh := make(chan struct{})
-	wg.Add(len(tasks))
+	for _, task := range tasks {
+		taskToRun := task.fn
+		taskName := task.name
+		eg.Go(func() error {
+			if taskErr := execute(ctx, taskToRun, taskName, logger); taskErr != nil {
+				return taskErr
+			}
 
-	defer close(errs)
-
-	go func() {
-		for _, task := range tasks {
-			taskToRun := task.fn
-			taskName := task.name
-			go func() {
-				defer wg.Done()
-				taskErr := execute(ctx, taskToRun, taskName, logger)
-				if taskErr != nil && ctx.Err() == nil {
-					errs <- taskErr
-					cancel()
-				}
-			}()
-		}
-
-		wg.Wait()
-		close(waitCh)
-	}()
-
-	select {
-	case <-waitCh: // successfully completed all tasks
-		return nil
-	case err := <-errs:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
+			return nil
+		})
 	}
+
+	return eg.Wait()
 }
 
 func run(ctx context.Context, fn func(context.Context) error) error {
